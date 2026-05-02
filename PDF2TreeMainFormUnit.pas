@@ -785,6 +785,7 @@ var
   Loaded: Boolean;
 begin
   Result := False;
+  TreeView.Items.Clear;
   Pwd := '';
   Loaded := False;
 
