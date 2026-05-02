@@ -1,0 +1,19 @@
+# Delphi固有の一時ファイル・履歴
+__history/
+__recovery/
+*.identcache
+*.local
+*.stat
+*.dcu
+
+# コンパイルされたバイナリ（Releasesで配布するためソース管理には不要）
+Win32/
+Win64/
+*.exe
+*.dll
+
+# テスト用フォルダ
+Test/
+
+# 配布用に作ったZIPファイルが紛れ込むのを防ぐ
+*.zip

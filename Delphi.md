@@ -1,0 +1,28 @@
+# PDF2Tree ソースについて
+
+ちょっと恥ずかしいですがオープンソースとして公開します。
+あくまでユーザー（特にセキュリティを気にする層）に対する**信頼性担保**としての公開であり
+普段から Delphi 使っている人が得られるものは何も無い内容です。
+もし、入門者や初心者の方が興味を持ってコンパイル、改造してみようと思われた場合以下の点にご注意ください。
+
+* 開発環境は、Delphi 12.1 CE です。
+
+### コンパイル
+#### 1. コンポーネント
+`TFileDrop` と `TSingleInstance` は、大野元久氏の著書「Delphi3Q&A150選」に付属していたコンポーネントです。
+エクスプローラからのドラッグ＆ドロップと、多重起動防止のコンポーネントで、ポトペタが楽ちんなのでずっと使っています。
+*    書籍は大野氏が全文公開されています。[Delphi3QA150.pdf](https://scan.jp/Delphi3QA150.pdf)
+* コンポーネントも何処かでダウンロード出来たと思うのですが、まあ自分で直接書いても複雑ではないのでコンパイル通すだけならまずはエラー行をコメントアウトしてから取り組んでください。
+
+
+### 2. pdfium.dll 関連
+#### 1. `PdfiumLib`
+ReadMe にも書いている通り`pdfium.dll`利用のためにこのライブラリを使用しています。
+[PdfiumLib](https://github.com/ahausladen/PdfiumLib)
+
+#### 2. `pdfium.dll` 
+[pdfium-binaries](https://github.com/bblanchon/pdfium-binaries)
+
+  1. Releases ページ
+  2. 最新リリースの Assets から、`pdfium-win-x86.tgz` (32bit用) または `pdfium-win-x64.tgz` (64bit用) をダウンロード
+  3. 解凍し、`bin` フォルダ内にある `pdfium.dll` を取り出し、Delphiの実行ファイル（.exe）と同じフォルダに配置
