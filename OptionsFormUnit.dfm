@@ -2,7 +2,7 @@ object OptionsForm: TOptionsForm
   Left = 0
   Top = 0
   BorderStyle = bsDialog
-  Caption = 'OptionsForm'
+  Caption = #35373#23450
   ClientHeight = 351
   ClientWidth = 624
   Color = clBtnFace
@@ -43,8 +43,6 @@ object OptionsForm: TOptionsForm
             #29420#33258#12479#12464)
           TabOrder = 0
           OnClick = LinkTagsRadioGroupClick
-          ExplicitTop = 17
-          ExplicitHeight = 155
         end
         object LinkTagOptionsPageControl: TPageControl
           Left = 177
@@ -54,7 +52,6 @@ object OptionsForm: TOptionsForm
           ActivePage = TabSheet3
           Align = alClient
           TabOrder = 1
-          ExplicitHeight = 104
           object TabSheet2: TTabSheet
             Caption = 'TabSheet2'
             object ExMarkdownLabel: TLabel
@@ -107,6 +104,26 @@ object OptionsForm: TOptionsForm
           end
         end
       end
+      object GroupBox1: TGroupBox
+        Left = 0
+        Top = 169
+        Width = 601
+        Height = 105
+        Align = alTop
+        Caption = #25277#20986#30011#20687'(&S)'
+        TabOrder = 1
+        ExplicitLeft = 16
+        ExplicitTop = 176
+        ExplicitWidth = 185
+        object ExcludeSmallImagesCheckBox: TCheckBox
+          Left = 24
+          Top = 40
+          Width = 333
+          Height = 17
+          Caption = #23567#12373#12394#30011#20687#12399#38500#22806#12377#12427'(&E)'
+          TabOrder = 0
+        end
+      end
     end
   end
   object Panel1: TPanel
@@ -116,9 +133,6 @@ object OptionsForm: TOptionsForm
     Height = 41
     Align = alBottom
     TabOrder = 1
-    ExplicitLeft = 136
-    ExplicitTop = 400
-    ExplicitWidth = 185
     object BitBtn1: TBitBtn
       Left = 448
       Top = 8

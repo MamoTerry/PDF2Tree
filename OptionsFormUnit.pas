@@ -25,6 +25,8 @@ type
     LinkEndTagEdit: TEdit;
     LinkTagSampleLabel: TLabel;
     Label2: TLabel;
+    GroupBox1: TGroupBox;
+    ExcludeSmallImagesCheckBox: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure LinkStartTagEditChange(Sender: TObject);
     procedure LinkTagsRadioGroupClick(Sender: TObject);
@@ -55,7 +57,10 @@ var
   i:integer;
 begin
   with PageControl do
+  begin
     for i := 0 to PageCount - 1 do Pages[i].TabVisible := False;
+    Align:=alClient;
+  end;
   with LinkTagOptionsPageControl do
     for i := 0 to PageCount - 1 do Pages[i].TabVisible := False;
   ExMarkdownLabel.Caption:=ExMarkdown;//![img_001.png](SaveName_Images/img_001.png)
