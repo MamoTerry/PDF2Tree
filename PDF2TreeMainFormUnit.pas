@@ -13,7 +13,7 @@ uses
   Vcl.Imaging.pngimage,
   System.JSON,
   System.Generics.Collections, System.Generics.Defaults,
-  System.StrUtils, System.IOUtils,
+  System.StrUtils, System.IOUtils, System.Math,
   Vcl.ComCtrls, NewCtrls, System.Actions, Vcl.ActnList, System.ImageList,
   Vcl.ImgList, Vcl.ToolWin, Vcl.ExtCtrls, CuteSplt, Vcl.StdCtrls,
   Vcl.Menus, SysCtrls;
@@ -95,9 +95,11 @@ type
     FTargetPDFPath:string;
     FImageCounter: Integer;
 
+    ExcludeSmallImages:Boolean;
     LinkTagsLaw:0..1;
     LinkStartTag,LinkEndTag:string;
     JsonFileName: string;
+    TmpCount:integer;
     procedure JsonRead;
     procedure JsonWrite;
     function GetSaveImagePath(const BaseName, ImageName: string): string;
@@ -392,121 +394,226 @@ end;
 
 function TPDF2TreeMainForm.ExtractImagesFromPage(Page: TPdfPage;
   const OutputTextPath: string): string;
+type
+  TImageInfo = record
+    Bmp: TBitmap;
+    Left, Bottom, Right, Top: Single;
+    Width, Height: Single;
+  end;
 var
-  ObjCount, i, Y: Integer;
+  ImageList: TList<TImageInfo>;
+  MergeGroup: TList<TBitmap>;
+  ImgInfo, PrevImg: TImageInfo;
+  ObjCount, i: Integer;
   PageObj: FPDF_PAGEOBJECT;
-  BmpHandle: FPDF_BITMAP;
-  ImgWidth, ImgHeight, ImgStride, ImgFmt: Integer;
-  ImgBuffer: Pointer;
-  Bmp: TBitmap;
-  Png: TPngImage;
-  ImageName, SavePath: string;
-  Src, Dest: PByte;
-  Left, Bottom, Right, Top: Single;
-  ImageList: TList<TExtractedImage>;
-  ExtImg: TExtractedImage;
+  SavePath, ImageName: string;
+
+  // ---------------------------------------------------------------------------
+  // ローカル関数1: コンテナ再帰探索＆画像情報リスト化
+  // ---------------------------------------------------------------------------
+  procedure ProcessObject(TargetObj: FPDF_PAGEOBJECT);
+  var
+    ObjType, j, ChildCount: Integer;
+    ChildObj: FPDF_PAGEOBJECT;
+    BmpHandle: FPDF_BITMAP;
+    ImgWidth, ImgHeight, ImgStride, ImgFmt, Y: Integer;
+    ImgBuffer: Pointer;
+    Src, Dest: PByte;
+    Bmp: TBitmap;
+    Left, Bottom, Right, Top: Single;
+    Info: TImageInfo;
+  begin
+    ObjType := FPDFPageObj_GetType(TargetObj);
+
+    if ObjType = 3 then // 3 = FPDF_PAGEOBJ_IMAGE
+    begin
+      if FPDFPageObj_GetBounds(TargetObj, Left, Bottom, Right, Top) = 0 then Exit;
+
+      // ノイズフィルタリング（小さすぎる画像は除外）
+      if (Abs(Right - Left) < 50.0) or (Abs(Top - Bottom) < 50.0) then Exit;
+
+      BmpHandle := FPDFImageObj_GetBitmap(TargetObj);
+      if BmpHandle <> nil then
+      begin
+        try
+          ImgWidth := FPDFBitmap_GetWidth(BmpHandle);
+          ImgHeight := FPDFBitmap_GetHeight(BmpHandle);
+          ImgStride := FPDFBitmap_GetStride(BmpHandle);
+          ImgFmt := FPDFBitmap_GetFormat(BmpHandle);
+          ImgBuffer := FPDFBitmap_GetBuffer(BmpHandle);
+
+          if (ImgWidth > 0) and (ImgHeight > 0) and (ImgBuffer <> nil) then
+          begin
+            Bmp := TBitmap.Create;
+            if (ImgFmt = 3) or (ImgFmt = 4) then Bmp.PixelFormat := pf32bit
+            else if ImgFmt = 2 then Bmp.PixelFormat := pf24bit
+            else
+            begin
+              Bmp.Free;
+              Exit;
+            end;
+
+            Bmp.Width := ImgWidth;
+            Bmp.Height := ImgHeight;
+            Src := ImgBuffer;
+            for Y := 0 to ImgHeight - 1 do
+            begin
+              Dest := Bmp.ScanLine[Y];
+              Move(Src^, Dest^, ImgStride);
+              Inc(Src, ImgStride);
+            end;
+
+            // リストに追加
+            Info.Bmp := Bmp;
+            Info.Left := Left;
+            Info.Bottom := Bottom;
+            Info.Right := Right;
+            Info.Top := Top;
+            Info.Width := Abs(Right - Left);
+            Info.Height := Abs(Top - Bottom);
+            ImageList.Add(Info);
+          end;
+        finally
+          FPDFBitmap_Destroy(BmpHandle);
+        end;
+      end;
+    end
+    else if ObjType = 5 then // 5 = FPDF_PAGEOBJ_FORM (コンテナ)
+    begin
+      ChildCount := FPDFFormObj_CountObjects(TargetObj);
+      for j := 0 to ChildCount - 1 do
+      begin
+        ChildObj := FPDFFormObj_GetObject(TargetObj, j);
+        ProcessObject(ChildObj); // 再帰呼び出し
+      end;
+    end;
+  end;
+
+  // ---------------------------------------------------------------------------
+  // ローカル関数2: グループ化された画像を結合して保存し、パスを返す
+  // ---------------------------------------------------------------------------
+  function SaveMergedGroup(const Group: TList<TBitmap>): string;
+  var
+    MergedBmp: TBitmap;
+    TotalHeight, MaxWidth, k, CurrentY: Integer;
+    Png: TPngImage;
+    SPath, IName: string;
+  begin
+    Result := '';
+    if Group.Count = 0 then Exit;
+
+    TotalHeight := 0;
+    MaxWidth := 0;
+    for k := 0 to Group.Count - 1 do
+    begin
+      TotalHeight := TotalHeight + Group[k].Height;
+      MaxWidth := Max(MaxWidth, Group[k].Width);
+    end;
+
+    MergedBmp := TBitmap.Create;
+    try
+      MergedBmp.PixelFormat := pf32bit;
+      MergedBmp.Width := MaxWidth;
+      MergedBmp.Height := TotalHeight;
+      MergedBmp.Canvas.Brush.Color := clWhite;
+      MergedBmp.Canvas.FillRect(Rect(0, 0, MaxWidth, TotalHeight));
+
+      CurrentY := 0;
+      for k := 0 to Group.Count - 1 do
+      begin
+        MergedBmp.Canvas.Draw(0, CurrentY, Group[k]);
+        CurrentY := CurrentY + Group[k].Height;
+      end;
+
+      Inc(FImageCounter);
+      IName := System.SysUtils.Format('img_%.3d.png', [FImageCounter]);
+      SPath := GetSaveImagePath(OutputTextPath, IName);
+      ForceDirectories(ExtractFilePath(SPath));
+
+      Png := TPngImage.Create;
+      try
+        Png.Assign(MergedBmp);
+        Png.SaveToFile(SPath);
+        Result := SPath;
+      finally
+        Png.Free;
+      end;
+    finally
+      MergedBmp.Free;
+    end;
+  end;
+
+// -----------------------------------------------------------------------------
+// ExtractImagesFromPage メイン処理
+// -----------------------------------------------------------------------------
 begin
   Result := '';
   ObjCount := FPDFPage_CountObjects(Page.Handle);
   if ObjCount = 0 then Exit;
 
-  ImageList := TList<TExtractedImage>.Create;
+  ImageList := TList<TImageInfo>.Create;
+  MergeGroup := TList<TBitmap>.Create;
   try
+    // 1. ページ内の全画像をリスト化（コンテナ内含む）
     for i := 0 to ObjCount - 1 do
     begin
       PageObj := FPDFPage_GetObject(Page.Handle, i);
-
-      // 画像オブジェクトのみを対象とする
-      if FPDFPageObj_GetType(PageObj) = 3 then // 3 = FPDF_PAGEOBJ_IMAGE
-      begin
-        // オブジェクトの座標とサイズ（PDFポイント単位）を取得
-        if FPDFPageObj_GetBounds(PageObj, Left, Bottom, Right, Top)<>0 then
-        begin
-          // ★フィルタリング: 幅または高さが小さすぎる画像（アイコン等）は無視する
-          // ※ 1ポイント ≒ 1/72インチ。50ポイントは約1.7cm
-          if (Abs(Right - Left) < 50.0) or (Abs(Top - Bottom) < 50.0) then
-            Continue;
-        end
-        else
-          Top := 0; // 座標取得失敗時のフェイルセーフ
-
-        BmpHandle := FPDFImageObj_GetBitmap(PageObj);
-        if BmpHandle <> nil then
-        begin
-          try
-            ImgWidth := FPDFBitmap_GetWidth(BmpHandle);
-            ImgHeight := FPDFBitmap_GetHeight(BmpHandle);
-            ImgStride := FPDFBitmap_GetStride(BmpHandle);
-            ImgFmt := FPDFBitmap_GetFormat(BmpHandle);
-            ImgBuffer := FPDFBitmap_GetBuffer(BmpHandle);
-
-            if (ImgWidth > 0) and (ImgHeight > 0) and (ImgBuffer <> nil) then
-            begin
-              Bmp := TBitmap.Create;
-              try
-                if (ImgFmt = 3) or (ImgFmt = 4) then
-                  Bmp.PixelFormat := pf32bit
-                else if ImgFmt = 2 then
-                  Bmp.PixelFormat := pf24bit
-                else
-                  Continue; // モノクロ等はスキップ（必要なら後日対応）
-
-                Bmp.Width := ImgWidth;
-                Bmp.Height := ImgHeight;
-
-                Src := ImgBuffer;
-                for Y := 0 to ImgHeight - 1 do
-                begin
-                  Dest := Bmp.ScanLine[Y];
-                  Move(Src^, Dest^, ImgStride);
-                  Inc(Src, ImgStride);
-                end;
-
-                Inc(FImageCounter);
-                ImageName := System.SysUtils.Format('img_%.3d.png', [FImageCounter]);
-                SavePath := GetSaveImagePath(OutputTextPath, ImageName);
-                ForceDirectories(ExtractFilePath(SavePath));
-
-                Png := TPngImage.Create;
-                try
-                  Png.Assign(Bmp);
-                  Png.SaveToFile(SavePath);
-
-                  // リストに追加（後でソートするため）
-                  ExtImg.TopY := Top;
-                  ExtImg.SavePath := SavePath;
-                  ImageList.Add(ExtImg);
-                finally
-                  Png.Free;
-                end;
-              finally
-                Bmp.Free;
-              end;
-            end;
-          finally
-            FPDFBitmap_Destroy(BmpHandle);
-          end;
-        end;
-      end;
+      ProcessObject(PageObj);
     end;
 
-    // ★Y座標（TopY）の降順（上から下）でソート
-    ImageList.Sort(TComparer<TExtractedImage>.Construct(
-      function(const L, R: TExtractedImage): Integer
+    if ImageList.Count = 0 then Exit;
+
+    // 2. Y座標（Top）の降順（上から下）でソート
+    ImageList.Sort(TComparer<TImageInfo>.Construct(
+      function(const L, R: TImageInfo): Integer
       begin
-        if L.TopY > R.TopY then Result := -1
-        else if L.TopY < R.TopY then Result := 1
+        if L.Top > R.Top then Result := -1
+        else if L.Top < R.Top then Result := 1
         else Result := 0;
       end));
 
-    // ソートされた順にタグを生成
-    for ExtImg in ImageList do
+    // 3. 結合判定と保存
+    PrevImg := ImageList[0];
+    MergeGroup.Add(PrevImg.Bmp);
+
+    for i := 1 to ImageList.Count - 1 do
     begin
-      Result := Result + MakeImageTag(ExtImg.SavePath, OutputTextPath) + sLineBreak;
+      ImgInfo := ImageList[i];
+
+      // 結合条件: 幅が一致 ＆ X座標が一致 ＆ Y座標が連続
+      if (Abs(PrevImg.Width - ImgInfo.Width) <= 1.0) and
+         (Abs(PrevImg.Left - ImgInfo.Left) <= 1.0) and
+         (Abs(PrevImg.Bottom - ImgInfo.Top) <= 1.0) then
+      begin
+        MergeGroup.Add(ImgInfo.Bmp);
+      end
+      else
+      begin
+        // 条件を満たさないので、現在のグループを保存してタグを生成
+        SavePath := SaveMergedGroup(MergeGroup);
+        if SavePath <> '' then
+          Result := Result + MakeImageTag(SavePath, OutputTextPath) + sLineBreak;
+
+        MergeGroup.Clear;
+        MergeGroup.Add(ImgInfo.Bmp);
+      end;
+      PrevImg := ImgInfo;
+    end;
+
+    // 最後のグループを保存してタグを生成
+    if MergeGroup.Count > 0 then
+    begin
+      SavePath := SaveMergedGroup(MergeGroup);
+      if SavePath <> '' then
+        Result := Result + MakeImageTag(SavePath, OutputTextPath) + sLineBreak;
     end;
 
   finally
+    // メモリ解放
+    for i := 0 to ImageList.Count - 1 do
+      ImageList[i].Bmp.Free;
     ImageList.Free;
+    MergeGroup.Free;
   end;
 end;
 
@@ -545,6 +652,10 @@ begin
   PdfControl.Align:=alClient;
 
   AboutMenu.Caption:=ExtractFileName(ChangeFileExt(Application.ExeName,''))+' について(&A)';
+
+//初期値
+  ExcludeSmallImages:=True;
+
 
   JsonFileName := TPath.ChangeExtension(Application.ExeName, '.json');
   JsonRead;
@@ -609,7 +720,7 @@ function TPDF2TreeMainForm.GetPageTextRange(StartPage,
 var
   Page: TPdfPage;
   TotalChars, i: Integer;
-  PageText, ImageName, SavePath, ImageTags: string;
+  PageText, ImageTags: string;
 begin
   Result := '';
   if (StartPage < 0) or (StartPage > EndPage) then Exit;
@@ -621,30 +732,12 @@ begin
     // 1. テキストの抽出
     TotalChars := Page.GetCharCount;
     if TotalChars > 0 then
-      PageText := Trim(Page.ReadText(0, TotalChars)) // Trimで空白のみのテキストを空文字にする
+      PageText := Trim(Page.ReadText(0, TotalChars))
     else
       PageText := '';
 
-    // 2. 画像抽出ロジックの分岐（ハイブリッド方式）
-    if (PageText = '') and HasImageObjects(Page) then
-    begin
-      // ★パターンA: テキストが無く、画像が存在するページ
-      // -> タイル分割を回避するため、ページ全体を1枚の画像としてレンダリング
-      Inc(FImageCounter);
-      ImageName := System.SysUtils.Format('img_%.3d.png', [FImageCounter]);
-      SavePath := GetSaveImagePath(OutputTextPath, ImageName);
-
-      if RenderPageAsImage(Page, SavePath) then
-        ImageTags := MakeImageTag(SavePath, OutputTextPath) + sLineBreak
-      else
-        ImageTags := '';
-    end
-    else
-    begin
-      // ★パターンB: テキストが存在するページ（または画像が全く無いページ）
-      // -> 意味のある画像オブジェクトのみを個別に抽出（前回の ExtractImagesFromPage）
-      ImageTags := ExtractImagesFromPage(Page, OutputTextPath);
-    end;
+    // 2. 画像の抽出（コンテナ再帰探索版）
+    ImageTags := ExtractImagesFromPage(Page, OutputTextPath);
 
     // 3. 結合
     if PageText <> '' then
@@ -687,19 +780,50 @@ begin
 end;
 
 function TPDF2TreeMainForm.HasImageObjects(Page: TPdfPage): Boolean;
+// ページ内に画像オブジェクトが存在するか判定する（コンテナ内部も再帰探索）
+
+  // Form XObject（コンテナ）の中身を再帰的に調べるローカル関数
+  function CheckFormContainer(FormObj: FPDF_PAGEOBJECT): Boolean;
+  var
+    i, Count: Integer;
+    ChildObj: FPDF_PAGEOBJECT;
+    ObjType: Integer;
+  begin
+    Result := False;
+    Count := FPDFFormObj_CountObjects(FormObj);
+    for i := 0 to Count - 1 do
+    begin
+      ChildObj := FPDFFormObj_GetObject(FormObj, i);
+      ObjType := FPDFPageObj_GetType(ChildObj);
+
+      if ObjType = 3 then // 3 = FPDF_PAGEOBJ_IMAGE (画像を発見)
+        Exit(True)
+      else if ObjType = 5 then // 5 = FPDF_PAGEOBJ_FORM (さらに箱が入っている場合)
+      begin
+        if CheckFormContainer(ChildObj) then
+          Exit(True);
+      end;
+    end;
+  end;
+
 var
   ObjCount, i: Integer;
   PageObj: FPDF_PAGEOBJECT;
+  ObjType: Integer;
 begin
   Result := False;
   ObjCount := FPDFPage_CountObjects(Page.Handle);
   for i := 0 to ObjCount - 1 do
   begin
     PageObj := FPDFPage_GetObject(Page.Handle, i);
-    if FPDFPageObj_GetType(PageObj) = 3 then // 3 = FPDF_PAGEOBJ_IMAGE
+    ObjType := FPDFPageObj_GetType(PageObj);
+
+    if ObjType = 3 then // 直下に画像がある場合
+      Exit(True)
+    else if ObjType = 5 then // コンテナ（Form XObject）の場合、中身を調べる
     begin
-      Result := True;
-      Exit;
+      if CheckFormContainer(PageObj) then
+        Exit(True);
     end;
   end;
 end;
@@ -727,6 +851,7 @@ begin
       LinkTagsLaw := JSON.GetValue<Integer>('LinkTagsLaw', LinkTagsLaw);
       LinkStartTag := JSON.GetValue<string>('LinkStartTag', LinkStartTag);
       LinkEndTag := JSON.GetValue<string>('LinkEndTag', LinkEndTag);
+      ExcludeSmallImages := JSON.GetValue<Boolean>('ExcludeSmallImages', ExcludeSmallImages);
     finally
       JSON.Free;
     end;
@@ -744,6 +869,7 @@ begin
     JSON.AddPair('LinkTagsLaw', TJSONNumber.Create(LinkTagsLaw));
     JSON.AddPair('LinkStartTag', LinkStartTag);
     JSON.AddPair('LinkEndTag', LinkEndTag);
+    JSON.AddPair('ExcludeSmallImages', ExcludeSmallImages);
 
     // 3. JSONオブジェクトを文字列化し、ファイルに保存する
     // Format(2) を使用することで、インデントされた人間が読みやすい形式で保存される
@@ -876,6 +1002,7 @@ begin
       LinkTagsRadioGroup.OnClick(LinkTagsRadioGroup);
       LinkStartTagEdit.Text:=LinkStartTag;
       LinkEndTagEdit.Text:=LinkEndTag;
+      ExcludeSmallImagesCheckBox.Checked:=ExcludeSmallImages;
 
       ShowModal;
       if ModalResult<>mrOk then exit;
@@ -883,6 +1010,7 @@ begin
       LinkTagsLaw:=LinkTagsRadioGroup.ItemIndex;
       LinkStartTag:=LinkStartTagEdit.Text;
       LinkEndTag:=LinkEndTagEdit.Text;
+      ExcludeSmallImages:=ExcludeSmallImagesCheckBox.Checked;
       (Sender as TAction).Tag:=PageControl.ActivePageIndex;
     finally
       Release;
@@ -1055,9 +1183,6 @@ begin
     // 右ペイン（Memo等）にテキストを抽出して表示する場合の例
     // ※TPdfControl.Document.Pages[Index].Text で取得可能
 //    Memo1.Text := GetPageText(PageIndex);
-  {$IFDEF DEBUG}
-    DebugMemo.Lines.Add(IntToStr(PageIndex));
-  {$ENDIF}
   end;
 end;
 
