@@ -10,13 +10,15 @@ uses
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs,
   PdfiumCtrl, PdfiumLib,
   PdfiumCore, // 低レベルAPIへのアクセスに必須
+  NewCtrls, SysCtrls,//「Delphi3Q&A150選」に付属していたコンポーネント`TFileDrop` `TSingleInstance`
+  CuteSplt, //TSplitter から作成されたフリーコンポーネント`TCuteSplitter`
   Vcl.Imaging.pngimage,
   System.JSON,
   System.Generics.Collections, System.Generics.Defaults,
   System.StrUtils, System.IOUtils, System.Math,
-  Vcl.ComCtrls, NewCtrls, System.Actions, Vcl.ActnList, System.ImageList,
-  Vcl.ImgList, Vcl.ToolWin, Vcl.ExtCtrls, CuteSplt, Vcl.StdCtrls,
-  Vcl.Menus, SysCtrls;
+  Vcl.ComCtrls, System.Actions, Vcl.ActnList, System.ImageList,
+  Vcl.ImgList, Vcl.ToolWin, Vcl.ExtCtrls, Vcl.StdCtrls,
+  Vcl.Menus, Vcl.AppEvnts;
 
 // 抽出した画像の一時保持用レコード
 type
@@ -37,7 +39,7 @@ type
     ToolButton5: TToolButton;
     ToolButton6: TToolButton;
     ToolButton7: TToolButton;
-    ActionList1: TActionList;
+    MainActionList: TActionList;
     PrevAction: TAction;
     NextAction: TAction;
     FitWidthAction: TAction;
@@ -69,6 +71,52 @@ type
     AboutMenu: TMenuItem;
     DebugMenu: TMenuItem;
     SingleInstance1: TSingleInstance;
+    EditNodeImageList: TImageList;
+    EditNodeActionList: TActionList;
+    MovePrevAction: TAction;
+    MoveNextAction: TAction;
+    MoveUpAction: TAction;
+    MoveDownAction: TAction;
+    EditNodeMenu: TMenuItem;
+    N7: TMenuItem;
+    N8: TMenuItem;
+    U1: TMenuItem;
+    N9: TMenuItem;
+    DeleteNodeAction: TAction;
+    N10: TMenuItem;
+    E1: TMenuItem;
+    LeftToolBar: TToolBar;
+    ToolButton12: TToolButton;
+    ToolButton13: TToolButton;
+    ToolButton14: TToolButton;
+    ToolButton15: TToolButton;
+    ToolButton16: TToolButton;
+    EditNodePopupMenu: TPopupMenu;
+    P1: TMenuItem;
+    N11: TMenuItem;
+    U2: TMenuItem;
+    N12: TMenuItem;
+    N13: TMenuItem;
+    E2: TMenuItem;
+    AddBookmarkAction: TAction;
+    ToolButton17: TToolButton;
+    A1: TMenuItem;
+    N14: TMenuItem;
+    PdfControlPopupMenu: TPopupMenu;
+    A2: TMenuItem;
+    N15: TMenuItem;
+    SaveTreeAction: TAction;
+    ReadTreeAction: TAction;
+    N16: TMenuItem;
+    N17: TMenuItem;
+    ToolButton18: TToolButton;
+    ToolButton19: TToolButton;
+    EditTitleAction: TAction;
+    ToolButton20: TToolButton;
+    N18: TMenuItem;
+    BookMarkEditModeMenu: TMenuItem;
+    StatusBar: TStatusBar;
+    ApplicationEvents: TApplicationEvents;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FileDropFileDrop(Sender: TObject; Num: Integer; Files: TStrings;
@@ -89,6 +137,27 @@ type
     procedure OptionsActionExecute(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure DebugMenuClick(Sender: TObject);
+    procedure MovePrevActionUpdate(Sender: TObject);
+    procedure MoveNextActionUpdate(Sender: TObject);
+    procedure MoveUpActionUpdate(Sender: TObject);
+    procedure MoveDownActionUpdate(Sender: TObject);
+    procedure MovePrevActionExecute(Sender: TObject);
+    procedure DeleteNodeActionExecute(Sender: TObject);
+    procedure DeleteNodeActionUpdate(Sender: TObject);
+    procedure AddBookmarkActionUpdate(Sender: TObject);
+    procedure FitWidthActionUpdate(Sender: TObject);
+    procedure AddBookmarkActionExecute(Sender: TObject);
+    procedure SaveTreeActionUpdate(Sender: TObject);
+    procedure ReadTreeActionExecute(Sender: TObject);
+    procedure SaveTreeActionExecute(Sender: TObject);
+    procedure EditTitleActionExecute(Sender: TObject);
+    procedure EditTitleActionUpdate(Sender: TObject);
+    procedure TreeViewEdited(Sender: TObject; Node: TTreeNode; var S: string);
+    procedure TreeViewDragOver(Sender, Source: TObject; X, Y: Integer;
+      State: TDragState; var Accept: Boolean);
+    procedure TreeViewDragDrop(Sender, Source: TObject; X, Y: Integer);
+    procedure BookMarkEditModeMenuClick(Sender: TObject);
+    procedure ApplicationEventsHint(Sender: TObject);
   private
     { Private 宣言 }
     PdfControl: TPdfControl;
@@ -100,6 +169,12 @@ type
     LinkStartTag,LinkEndTag:string;
     JsonFileName: string;
     TmpCount:integer;
+    TreeDataFileName:string;
+    TreeViewModified,
+    FBookMarkEditMode:Boolean;
+    procedure MoveNodeData(Dest:integer;Tree:TTreeView);
+    procedure AddNewNode(Title:string;PageIndex:integer);
+//マウスアップイベント
     procedure JsonRead;
     procedure JsonWrite;
     function GetSaveImagePath(const BaseName, ImageName: string): string;
@@ -110,18 +185,23 @@ type
     function LoadPDF(FileName:string):Boolean;
     procedure ExportDocTreeTxt(const Path: TFileName);
     function GetPageText(PageIndex:integer):string;
+    procedure LoadTreeData(FileName:string);
+    procedure SaveTreeData(FileName:string);
 // 指定範囲のページテキストを取得する関数
     function GetPageTextRange(StartPage, EndPage: Integer; const OutputTextPath: string): string;
 // 呼び出し元（PDF読み込み完了後に実行）
     procedure LoadBookmarksToTree;
 // 再帰的なしおり探索処理
     procedure TraverseBookmark(DocHandle: FPDF_DOCUMENT; Bookmark: FPDF_BOOKMARK;
-                ParentNode: TTreeNode);  public
-
+                ParentNode: TTreeNode);
+    procedure SetBookMarkEditMode(const Value: Boolean);
 
     procedure WndProc(var Message: TMessage); override;
+    procedure PdfControlPageChange(Sender: TObject);
   public
     { Public 宣言 }
+    property BookMarkEditMode: Boolean read FBookMarkEditMode write SetBookMarkEditMode
+      default False;
   end;
 
 var
@@ -132,6 +212,9 @@ implementation
 {$R *.dfm}
 
 uses AboutFormUnit, OptionsFormUnit;
+
+const
+  TreeDataFileExt='.p2t';
 
 type
   // 汎用プログレスダイアログ（DFM不要）
@@ -256,6 +339,54 @@ begin
   end;
 end;
 
+procedure TPDF2TreeMainForm.AddBookmarkActionExecute(Sender: TObject);
+var
+  SelectedText, Title: string;
+begin
+  // 目次作成モードでなければ何もしない（またはアクション自体をDisableにする）
+  if not FBookMarkEditMode then Exit;
+  if PdfControl.Document = nil then Exit;
+
+  // 選択テキストを取得し、前後の空白や改行を除去
+  SelectedText := Trim(PdfControl.SelText);
+  Title := SelectedText;
+
+  // ダイアログを表示（初期値として選択テキストを渡す）
+  if not InputQuery('新しいブックマーク', 'タイトル:', Title) then Exit;
+
+  if Trim(Title) = '' then
+  begin
+    ShowMessage('タイトルを入力してください。');
+    Exit;
+  end;
+
+  // ノードの追加
+  AddNewNode(Title, PdfControl.PageIndex);
+end;
+
+procedure TPDF2TreeMainForm.AddBookmarkActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (PdfControl.Document <> nil) and
+                               (FTargetPDFPath<>'');
+end;
+
+procedure TPDF2TreeMainForm.AddNewNode(Title: string;PageIndex:integer);
+var
+  Node: TTreeNode;
+begin
+  Node:=TreeView.Selected;
+  Node:=TreeView.Items.Add(Node,Title);
+  Node.Data := Pointer(PageIndex);
+  Node.Selected:=True;
+  TreeViewModified:=True;
+end;
+
+procedure TPDF2TreeMainForm.ApplicationEventsHint(Sender: TObject);
+begin
+  StatusBar.Panels[1].Text := Application.Hint;
+end;
+
 procedure TPDF2TreeMainForm.DebugActionExecute(Sender: TObject);
 var
 {  Page: TPdfPage;
@@ -265,12 +396,12 @@ var
 begin
   {$IFDEF DEBUG}
   DebugMemo.Visible:=True;
+  ShowMessage(FTargetPDFPath);
 
 
-
-  if TreeView.Items.Count = 0 then exit;
+{  if TreeView.Items.Count = 0 then exit;
   Node := TreeView.Items[0];
-  ShowMessage(Node.Text);
+  ShowMessage(Node.Text);}
 
 {  PageIndex := Integer(TreeView.Selected.Data);
   if PageIndex >= 0 then
@@ -295,6 +426,48 @@ begin
   DebugMemo.Visible:=not DebugMemo.Visible;
 end;
 
+procedure TPDF2TreeMainForm.DeleteNodeActionExecute(Sender: TObject);
+var
+  Idx:integer;
+  Node:TTreeNode;
+begin
+  if TreeView.IsEditing then exit;
+  Idx:=TreeView.Selected.Index;
+  if MessageDlg('削除していいですか？',mtConfirmation,mbOkCancel,0)=mrOk then
+    TreeView.Selected.Delete else exit;
+  TreeViewModified:=True;
+  if TreeView.Items.Count=0 then exit;
+  Node:=TreeView.Items[0];
+  while Node <> nil do
+  begin
+    if Node.Level=Idx then
+    begin
+      Node.Selected:=True;
+      exit;
+    end;
+    Node:=Node.GetNext;
+  end;
+end;
+
+procedure TPDF2TreeMainForm.DeleteNodeActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (TreeView.Selected<>nil)and
+                               (not TreeView.IsEditing);
+end;
+
+procedure TPDF2TreeMainForm.EditTitleActionExecute(Sender: TObject);
+begin
+  TreeView.Selected.EditText;
+end;
+
+procedure TPDF2TreeMainForm.EditTitleActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (TreeView.Selected<>nil)and
+                               (not TreeView.IsEditing);
+end;
+
 procedure TPDF2TreeMainForm.ExportDocTreeTxt(const Path: TFileName);
 var
   Node: TTreeNode;
@@ -317,9 +490,10 @@ const
 
       // 1. タイトルの抽出
       TitleStr := CurrentNode.Text;
-      P := Pos(' (Page: ', TitleStr);
+
+{      P := Pos(' (Page: ', TitleStr);// (Page: x)の付加を中止
       if P > 0 then
-        TitleStr := Copy(TitleStr, 1, P - 1);
+        TitleStr := Copy(TitleStr, 1, P - 1);}
 
       SL.Add(DupeString(LayeredMark, Tier) + TitleStr);
 
@@ -633,10 +807,45 @@ begin
   end;
 end;
 
+procedure TPDF2TreeMainForm.FitWidthActionUpdate(Sender: TObject);
+begin
+  with (Sender as TAction) do
+  begin
+    Enabled:=PdfControl.PageCount>0;
+    if Enabled then
+      case PdfControl.ScaleMode of
+        smFitWidth: FitWidthAction.Checked:=True;
+        smFitHeight: FitHeightAction.Checked:=True;
+      else FitAutoAction.Checked:=True;
+      end;
+  end;
+end;
+
 procedure TPDF2TreeMainForm.FormCloseQuery(Sender: TObject;
   var CanClose: Boolean);
+var
+  Mess:string;
+  SaveAs:Boolean;
 begin
-  JsonWrite;
+  SaveAs:=not TFile.Exists(TreeDataFileName);
+  if SaveAs then
+    Mess:='ブックマークが更新されています'+#13#10+'ブックマークファイルを保存しますか？' else
+      Mess:='ブックマークが更新されています'+#13#10+'ブックマークファイルを上書きしますか？';
+  if TreeViewModified then
+    case MessageDlg(Mess,
+      mtConfirmation,[mbYes, mbNo, mbCancel] ,0) of
+      mrYes:    if SaveAs then
+                  SaveTreeAction.OnExecute(SaveTreeAction) else
+                    SaveTreeData(TreeDataFileName);
+      mrCancel:
+                begin
+                  CanClose:=False;
+                  exit;
+                end;
+    else TreeViewModified:=False;
+    end;
+  if TreeViewModified then CanClose:=False;
+  if CanClose then JsonWrite;
 end;
 
 procedure TPDF2TreeMainForm.FormCreate(Sender: TObject);
@@ -645,11 +854,14 @@ var
 begin
   {$IFDEF DEBUG}
     DebugMenu.Visible:=True;
+    BookMarkEditModeMenu.Visible:=True;
   {$ENDIF}
   Caption:=Application.Title;
   PdfControl := TPdfControl.Create(Self);
   PdfControl.Parent:=Self;
   PdfControl.Align:=alClient;
+  PdfControl.ChangePageOnMouseScrolling:=True;
+  PdfControl.OnPageChange:=PdfControlPageChange;
 
   AboutMenu.Caption:=ExtractFileName(ChangeFileExt(Application.ExeName,''))+' について(&A)';
 
@@ -879,6 +1091,11 @@ begin
   end;
 end;
 
+procedure TPDF2TreeMainForm.BookMarkEditModeMenuClick(Sender: TObject);
+begin
+  BookMarkEditMode:=True;
+end;
+
 procedure TPDF2TreeMainForm.LoadBookmarksToTree;
 var
   DocHandle: FPDF_DOCUMENT;
@@ -893,8 +1110,10 @@ begin
   if RootBookmark = nil then
   begin
     // しおりが存在しない
+    BookMarkEditMode:=True;
     Exit;
   end;
+  BookMarkEditMode:=False;
 
   TreeView.Items.BeginUpdate;
   try
@@ -912,6 +1131,8 @@ var
 begin
   Result := False;
   TreeView.Items.Clear;
+  TreeViewModified:=False;
+  TreeDataFileName:='';
   Pwd := '';
   Loaded := False;
 
@@ -940,10 +1161,87 @@ begin
       end;
     end;
   end;
-
   Result := True;
   FTargetPDFPath:=FileName;
   LoadBookmarksToTree;
+end;
+
+procedure TPDF2TreeMainForm.LoadTreeData(FileName: string);
+var
+  JsonText: string;
+  JSON: TJSONObject;
+  JsonArray: TJSONArray;
+  JsonItem: TJSONObject;
+  i, Page, Level: Integer;
+  PDFFileName,
+  Title: string;
+  ParentNode, NewNode: TTreeNode;
+  LastNodes: array of TTreeNode; // 各階層の最後のノードを記憶する配列
+begin
+  if not TFile.Exists(FileName) then Exit;
+
+  JsonText := TFile.ReadAllText(FileName, TEncoding.UTF8);
+  JSON := TJSONObject.ParseJSONValue(JsonText) as TJSONObject;
+
+  if Assigned(JSON) then
+  begin
+    try
+      PDFFileName:=Json.GetValue<string>('PdfFileName', ExtractFileName(FTargetPDFPath));
+      if CompareText(PDFFileName,ExtractFileName(FTargetPDFPath))<>0 then
+        if MessageDlg('開いているPDF'+#13#10+
+                      '『'+ExtractFileName(FTargetPDFPath)+'』'+#13#10#13#10+
+                      'と、読み込もうとしている目次データ'+#13#10+
+                      '『'+PDFFileName+'』'+#13#10#13#10+
+                      'の名前が違いますが、本当に読み込みますか？',mtConfirmation,mbOkCancel,0)<>mrOk then exit;
+
+      JsonArray := JSON.GetValue<TJSONArray>('Bookmarks');
+      if not Assigned(JsonArray) then Exit;
+
+      TreeView.Items.BeginUpdate;
+      try
+        TreeView.Items.Clear;
+        SetLength(LastNodes, 100); // 最大100階層まで対応（通常は数階層で十分）
+
+        for i := 0 to JsonArray.Count - 1 do
+        begin
+          JsonItem := JsonArray.Items[i] as TJSONObject;
+
+          // 値の取得（キーが無い場合のデフォルト値も指定）
+          Title := JsonItem.GetValue<string>('Title', 'No Title');
+          Page := JsonItem.GetValue<Integer>('Page', 0);
+          Level := JsonItem.GetValue<Integer>('Level', 0);
+
+          // 安全対策：想定外に深い階層が来た場合は配列を拡張
+          if Level >= Length(LastNodes) then
+            SetLength(LastNodes, Level + 50);
+
+          // 親ノードの決定
+          if Level = 0 then
+            ParentNode := nil // ルート階層
+          else
+            ParentNode := LastNodes[Level - 1]; // 1つ上の階層の最後のノードが親になる
+
+          // ノードの追加とデータの復元
+          NewNode := TreeView.Items.AddChild(ParentNode, Title);
+          NewNode.Data := Pointer(Page);
+
+          // 現在の階層の「最後のノード」を更新
+          LastNodes[Level] := NewNode;
+        end;
+
+        // 読み込み完了後、すべてのノードを展開状態にする（お好みで）
+        TreeView.FullExpand;
+      finally
+        TreeView.Items.EndUpdate;
+      end;
+
+      // 読み込み完了フラグのクリア
+      TreeViewModified := False;
+      TreeDataFileName:=FileName;
+    finally
+      JSON.Free;
+    end;
+  end;
 end;
 
 function TPDF2TreeMainForm.MakeImageTag(const ImagePath, BaseTextPath: string): string;
@@ -964,6 +1262,98 @@ begin
   begin
     Result:=LinkStartTag+RelPath+LinkEndTag;
   end;
+end;
+
+procedure TPDF2TreeMainForm.MoveDownActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (TreeView.Selected<>nil)and
+                               (TreeView.Selected.getPrevSibling<>nil);
+end;
+
+procedure TPDF2TreeMainForm.MoveNextActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (TreeView.Selected<>nil)and
+                               (TreeView.Selected.getNextSibling<>nil);
+end;
+
+procedure TPDF2TreeMainForm.MoveNodeData(Dest: integer; Tree: TTreeView);
+var
+  N1, N2: TTreeNode;
+begin
+  if Tree.Selected = nil then Exit;
+
+  with Tree do
+  begin
+    Items.BeginUpdate; // 描画停止（ちらつき防止）
+    try
+      case Dest of
+        1: // ↑ (前の兄弟の前に挿入)
+          begin
+            N1 := Selected.getPrevSibling;
+            if N1 <> nil then
+              Selected.MoveTo(N1, naInsert);
+          end;
+        2: // ↓ (次の兄弟の後ろに挿入)
+          begin
+            N1 := Selected.getNextSibling;
+            if N1 <> nil then
+            begin
+              N2 := N1.getNextSibling;
+              if N2 <> nil then
+                Selected.MoveTo(N2, naInsert)
+              else
+              begin
+                if N1.Parent <> nil then
+                  Selected.MoveTo(N1.Parent, naAddChild)
+                else
+                  Selected.MoveTo(N1, naAdd);
+              end;
+            end;
+          end;
+        3: // ← (親の次の兄弟の前に挿入 ＝ 階層を浅くする)
+          begin
+            if Selected.Parent <> nil then // ★親がnilでない（ルート階層ではない）ことの確認が必須
+            begin
+              N1 := Selected.Parent.GetNextSibling;
+              if N1 <> nil then
+                Selected.MoveTo(N1, naInsert)
+              else
+                Selected.MoveTo(Selected.Parent, naAdd); // 親と同じ階層の最後に追加
+            end;
+          end;
+        4: // → (前の兄弟の子ノードの最後に追加 ＝ 階層を深くする)
+          begin
+            N1 := Selected.getPrevSibling;
+            if N1 <> nil then
+              Selected.MoveTo(N1, naAddChild);
+          end;
+      end;
+    finally
+      Items.EndUpdate;
+    end;
+  end;
+end;
+
+procedure TPDF2TreeMainForm.MovePrevActionExecute(Sender: TObject);
+begin
+  MoveNodeData((Sender as TAction).Tag,TreeView);
+  TreeViewModified:=True;
+end;
+
+procedure TPDF2TreeMainForm.MovePrevActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (TreeView.Selected<>nil)and
+                               (TreeView.Selected.getPrevSibling<>nil);
+end;
+
+procedure TPDF2TreeMainForm.MoveUpActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (TreeView.Selected<>nil)and
+                               (TreeView.Selected.Level<>0);
 end;
 
 procedure TPDF2TreeMainForm.NextActionExecute(Sender: TObject);
@@ -1025,7 +1415,7 @@ begin
     try
       Title:='階層化テキストへのエクスポート';
       Filter:='Text Files|*.txt|All Files|*.*';
-      if TFile.Exists(FTargetPDFPath) then FileName:=ChangeFileExt(FTargetPDFPath,'.txt');
+      if TFile.Exists(FTargetPDFPath) then FileName:=ExtractFileName(ChangeFileExt(FTargetPDFPath,'.txt'));
       Options:=[ofOverwritePrompt,//既存のファイルを上書きするかどうか尋ねる
                 ofPathMustExist,//存在しないパスにエラーメッセージ
                 ofNoReadOnlyReturn,//読み出し専用のファイルを選択エラー
@@ -1048,6 +1438,11 @@ begin
   (Sender as TAction).Enabled:=TreeView.Items.Count>0;
 end;
 
+procedure TPDF2TreeMainForm.PdfControlPageChange(Sender: TObject);
+begin
+  StatusBar.Panels[0].Text := Format('%d/%d ページ',[PdfControl.PageIndex+1,PdfControl.PageCount]);
+end;
+
 procedure TPDF2TreeMainForm.PrevActionExecute(Sender: TObject);
 begin
   PdfControl.GotoPrevPage;
@@ -1055,15 +1450,29 @@ end;
 
 procedure TPDF2TreeMainForm.PrevActionUpdate(Sender: TObject);
 begin
-  with (Sender as TAction) do
+  (Sender as TAction).Enabled:=PdfControl.PageCount>1;
+end;
+
+procedure TPDF2TreeMainForm.ReadTreeActionExecute(Sender: TObject);
+begin
+  if TreeViewModified then
+    if MessageDlg('更新されていますが読み込みなおしますか？',
+      mtConfirmation,mbOkCancel,0)<>mrOk then exit;
+  with TOpenDialog.Create(Self) do
   begin
-    Enabled:=TreeView.Items.Count>1;
-    if Enabled then
-      case PdfControl.ScaleMode of
-        smFitWidth: FitWidthAction.Checked:=True;
-        smFitHeight: FitHeightAction.Checked:=True;
-      else FitAutoAction.Checked:=True;
-      end;
+    try
+      Options:=[ofHideReadOnly,//［読み取り専用ファイルとして開く］チェックボックスを削除
+                ofEnableSizing,//ダイアログサイズを変更できる
+                ofFileMustExist//存在しないファイルを選択エラー
+                ];
+      Title:='ブックマークファイル を開く';
+      Filter:='ブックマークファイル|*'+TreeDataFileExt+'|全てのファイル|*.*';
+      FileName:=ExtractFileName(ChangeFileExt(FTargetPDFPath,TreeDataFileExt));
+      if not Execute then exit;
+      LoadTreeData(FileName);
+    finally
+      Free;
+    end;
   end;
 end;
 
@@ -1110,6 +1519,103 @@ begin
   end;
 end;
 
+procedure TPDF2TreeMainForm.SaveTreeActionExecute(Sender: TObject);
+begin
+  with TSaveDialog.Create(Self) do
+  begin
+    try
+      Title:='ブックマークの保存';
+      Filter:='ブックマークファイル|*'+TreeDataFileExt+'|All Files|*.*';
+      FileName:=ExtractFileName(ChangeFileExt(FTargetPDFPath,TreeDataFileExt));
+      Options:=[ofOverwritePrompt,//既存のファイルを上書きするかどうか尋ねる
+                ofPathMustExist,//存在しないパスにエラーメッセージ
+                ofNoReadOnlyReturn,//読み出し専用のファイルを選択エラー
+                ofHideReadOnly,//［読み取り専用］チェックボックスを削除
+                ofEnableSizing];//ダイアログサイズを変更できる
+      if not Execute then exit;
+  //★ここ★が DefaultExt 相当
+      if ExtractFileExt(FileName)='' then
+        FileName:=ChangeFileExt(FileName,TreeDataFileExt);
+      SaveTreeData(FileName);
+    finally
+      Free;
+    end;
+  end;
+end;
+
+procedure TPDF2TreeMainForm.SaveTreeActionUpdate(Sender: TObject);
+begin
+  (Sender as TAction).Enabled:=FBookMarkEditMode and
+                               (TreeView.Items.Count>0);
+end;
+
+procedure TPDF2TreeMainForm.SaveTreeData(FileName: string);
+var
+  JSON: TJSONObject;
+  JsonArray: TJSONArray;
+  JsonItem: TJSONObject;
+  Node: TTreeNode;
+  i: Integer;
+begin
+  if TreeView.Items.Count = 0 then Exit;
+
+  JSON := TJSONObject.Create;
+  try
+    JSON.AddPair('PdfFileName', ExtractFileName(FTargetPDFPath));
+    JsonArray := TJSONArray.Create;
+
+    for i := 0 to TreeView.Items.Count - 1 do
+    begin
+      Node := TreeView.Items[i];
+      JsonItem := TJSONObject.Create;
+      JsonItem.AddPair('Title', Node.Text);
+      JsonItem.AddPair('Page', TJSONNumber.Create(Integer(Node.Data)));
+      JsonItem.AddPair('Level', TJSONNumber.Create(Node.Level));
+      JsonArray.AddElement(JsonItem);
+    end;
+    JSON.AddPair('Bookmarks', JsonArray);
+
+    try
+      // ファイルへ書き込み
+      TFile.WriteAllText(FileName, JSON.Format(2), TEncoding.UTF8);
+
+      // 書き込みが成功した場合のみフラグをクリアし、ファイル名を記憶する
+      TreeViewModified := False;
+      TreeDataFileName := FileName;
+    except
+      on E: Exception do
+      begin
+        ShowMessage('ファイルの保存に失敗しました。' + sLineBreak + E.Message);
+        // 例外を握りつぶすことで、アプリがクラッシュするのを防ぐ。
+        // TreeViewModified は True のままなので、Form.OnCloseQuery から呼ばれた場合、終了はキャンセルされる。
+      end;
+    end;
+  finally
+    JSON.Free;
+  end;
+end;
+
+procedure TPDF2TreeMainForm.SetBookMarkEditMode(const Value: Boolean);
+begin
+  if FBookMarkEditMode = Value then exit;
+  FBookMarkEditMode := Value;
+  LeftToolBar.Visible:=FBookMarkEditMode;
+  EditNodeMenu.Visible:=FBookMarkEditMode;
+  if FBookMarkEditMode then
+  begin
+    TreeView.PopupMenu:=EditNodePopupMenu;
+    TreeView.Color:=clCream;
+    PdfControl.PopupMenu:=PdfControlPopupMenu;
+    LeftToolBar.Hint:='目次作成モード';
+  end else
+  begin
+    TreeView.PopupMenu:=nil;
+    TreeView.Color:=clWindow;
+    PdfControl.PopupMenu:=nil;
+    LeftToolBar.Hint:='';
+  end;
+end;
+
 procedure TPDF2TreeMainForm.TraverseBookmark(DocHandle: FPDF_DOCUMENT;
   Bookmark: FPDF_BOOKMARK; ParentNode: TTreeNode);
 var
@@ -1152,8 +1658,8 @@ begin
     if Dest <> nil then
       PageIndex := FPDFDest_GetDestPageIndex(DocHandle, Dest);
 
-    // 3. ツリービューにノードを追加 (PageIndexは0ベースなので表示時は+1する)
-    CurrentNode := TreeView.Items.AddChild(ParentNode, TitleStr + ' (Page: ' + IntToStr(PageIndex + 1) + ')');
+    // 3. ツリービューにノードを追加 (PageIndexは0ベースなので表示時は+1する)// (Page: x)の付加を中止
+    CurrentNode := TreeView.Items.AddChild(ParentNode, TitleStr{ + ' (Page: ' + IntToStr(PageIndex + 1) + ')'});
     // DataプロパティにPageIndexをキャストして保存
     CurrentNode.Data := Pointer(PageIndex);
     // 4. 子ノードが存在すれば再帰呼び出し
@@ -1184,6 +1690,58 @@ begin
     // ※TPdfControl.Document.Pages[Index].Text で取得可能
 //    Memo1.Text := GetPageText(PageIndex);
   end;
+end;
+
+procedure TPDF2TreeMainForm.TreeViewDragDrop(Sender, Source: TObject; X,
+  Y: Integer);
+var
+  TargetNode: TTreeNode;
+begin
+  TargetNode := TreeView.DropTarget;
+  if (TargetNode = nil) or (TreeView.Selected = nil) then Exit;
+
+  // Shiftキーが押されているか判定 (最上位ビットが立っているか)
+  if GetKeyState(VK_SHIFT) < 0 then
+  begin
+    // Shiftキー押下時: ターゲットの子ノードとして追加
+    TreeView.Selected.MoveTo(TargetNode, naAddChild);
+  end
+  else
+  begin
+    // 通常時: ターゲットの次の兄弟として挿入
+    if TargetNode.GetNextSibling <> nil then
+      TreeView.Selected.MoveTo(TargetNode.GetNextSibling, naInsert)
+    else
+      TreeView.Selected.MoveTo(TargetNode, naAdd); // 兄弟の最後
+  end;
+
+  TreeViewModified := True;
+end;
+
+procedure TPDF2TreeMainForm.TreeViewDragOver(Sender, Source: TObject; X,
+  Y: Integer; State: TDragState; var Accept: Boolean);
+var
+  TargetNode: TTreeNode;
+begin
+  Accept := False;
+  if Sender <> Source then Exit;
+  if TreeView.Selected = nil then Exit;
+
+  TargetNode := TreeView.GetNodeAt(X, Y);
+
+  // ドロップ先が存在し、かつ「自分自身」や「自分の子孫」ではない場合のみ許可
+  if (TargetNode <> nil) and (TargetNode <> TreeView.Selected) and
+     (not TargetNode.HasAsParent(TreeView.Selected)) then
+  begin
+    Accept := True;
+  end;
+end;
+
+procedure TPDF2TreeMainForm.TreeViewEdited(Sender: TObject; Node: TTreeNode;
+  var S: string);
+begin
+//空文字ブックマークは不可とする
+  if S='' then S:=TreeView.Selected.Text;
 end;
 
 procedure TPDF2TreeMainForm.WndProc(var Message: TMessage);
